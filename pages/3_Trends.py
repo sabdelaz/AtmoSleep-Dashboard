@@ -369,15 +369,9 @@ if not rows:
 
 trend_df = pd.DataFrame(rows).sort_values("date").reset_index(drop=True)
 
-# if there are 0 score nights, dont let them ruin the banner
-valid_df = trend_df[trend_df["sleep_score"] > 0].copy()
-
-if valid_df.empty:
-    best_row = trend_df.loc[trend_df["sleep_score"].idxmax()]
-    worst_row = trend_df.loc[trend_df["sleep_score"].idxmin()]
-else:
-    best_row = valid_df.loc[valid_df["sleep_score"].idxmax()]
-    worst_row = valid_df.loc[valid_df["sleep_score"].idxmin()]
+# include every night, even score 0
+best_row = trend_df.loc[trend_df["sleep_score"].idxmax()]
+worst_row = trend_df.loc[trend_df["sleep_score"].idxmin()]
 
 latest_row = trend_df.iloc[-1]
 
