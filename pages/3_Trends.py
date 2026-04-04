@@ -2,7 +2,6 @@ import streamlit as st
 import altair as alt
 import pandas as pd
 from pathlib import Path
-import sys
 
 from utils.sleep_metrics import compute_night_metrics, minutes_to_hours
 
@@ -392,37 +391,18 @@ st.markdown(
     f"""
     <div class="card">
       <div style="opacity:.7;font-size:13px">AtmoSleep · My Sleep Trends</div>
-      <div style="font-size:28px;font-weight:800">My Sleep Trends</div>
-      <div style="opacity:.78;font-size:14px; margin-top:6px;">
+
+      <div style="font-size:28px;font-weight:800">
+        My Sleep Trends
+      </div>
+
+      <div style="opacity:.8; font-size:14px; margin-top:6px;">
         Showing the last {len(trend_df)} available night file(s)
       </div>
 
-      <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:16px;">
-        <div style="
-            flex:1;
-            min-width:220px;
-            border-radius:14px;
-            padding:12px 14px;
-            background:rgba(255,255,255,0.04);
-            border:1px solid rgba(255,255,255,0.07);
-        ">
-          <div style="font-size:12px; opacity:0.7;">🏆 1st Place</div>
-          <div style="font-size:18px; font-weight:800; margin-top:4px;">{best_label}</div>
-          <div style="font-size:13px; opacity:0.82; margin-top:2px;">Sleep Score: {int(best_row['sleep_score'])}</div>
-        </div>
-
-        <div style="
-            flex:1;
-            min-width:220px;
-            border-radius:14px;
-            padding:12px 14px;
-            background:rgba(255,255,255,0.04);
-            border:1px solid rgba(255,255,255,0.07);
-        ">
-          <div style="font-size:12px; opacity:0.7;">📉 Lowest Night</div>
-          <div style="font-size:18px; font-weight:800; margin-top:4px;">{worst_label}</div>
-          <div style="font-size:13px; opacity:0.82; margin-top:2px;">Sleep Score: {int(worst_row['sleep_score'])}</div>
-        </div>
+      <div style="margin-top:10px; font-size:14px; opacity:0.85;">
+        🏆 Best: <b>{best_label}</b> ({int(best_row['sleep_score'])}) &nbsp;&nbsp;•&nbsp;&nbsp;
+        📉 Worst: <b>{worst_label}</b> ({int(worst_row['sleep_score'])})
       </div>
     </div>
     """,
@@ -523,7 +503,7 @@ st.altair_chart(
 # ----------------------------
 # bottom comparison table
 # ----------------------------
-st.subheader("Latest Night vs Weekly Average")
+st.subheader("Latest Night vs Average")
 
 compare_df = pd.DataFrame([
     {
