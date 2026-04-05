@@ -36,6 +36,16 @@ st.markdown(
 HISTORY_DIR = Path("data/history")
 
 
+@st.cache_data(show_spinner=False)
+def get_files_cached(folder_str):
+    return sorted(Path(folder_str).glob("*.csv"))
+
+
+@st.cache_data(show_spinner=False)
+def get_night_cached(path_str, mtime):
+    return compute_night_metrics(Path(path_str))
+
+
 # ----------------------------
 #  for visuals and desing
 # ----------------------------
@@ -112,7 +122,7 @@ def build_event(row):
 # ----------------------------
 # pick file bar on the left
 # ----------------------------
-files = sorted(HISTORY_DIR.glob("night_*.csv"))
+files = get_files_cached(str(HISTORY_DIR))
 if not files:
     st.warning("No session data found in data/history/.")
     st.stop()
@@ -121,13 +131,13 @@ choice = st.sidebar.selectbox(
     "Session",
     files,
     index=len(files) - 1,
-    format_func=lambda p: p.name.replace("night_", "").replace(".csv", ""),
+    format_func=lambda p: p.stem,
 )
 
 # ----------------------------
 # load all nightly metrics from helper
 # ----------------------------
-night = compute_night_metrics(choice)
+night = get_night_cached(str(choice), choice.stat().st_mtime)
 
 raw_df = night["raw_df"].copy()
 seg = night["seg"].copy()
