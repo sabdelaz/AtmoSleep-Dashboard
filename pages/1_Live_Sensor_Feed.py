@@ -50,7 +50,7 @@ with col2:
 # Load CSV (take first 6 columns only)
 # -------------------------
 if not DATA_FILE.exists():
-    st.warning("Page has been locked. It was being used for testing purposes. Page Can be unlocked and viewed as per user's request...")
+    st.warning("Page has been locked. It was being used for testing purposes. Page can be unlocked and viewed as per user's request...")
     st.stop()
 
 raw = pd.read_csv(DATA_FILE, header=None, on_bad_lines="skip")
