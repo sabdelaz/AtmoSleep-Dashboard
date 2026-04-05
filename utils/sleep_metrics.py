@@ -18,7 +18,11 @@ def minutes_to_hours(m):
 
 
 def extract_night_label(path: Path) -> str:
-    return path.stem.replace("night_", "")
+    return path.stem
+
+
+def parse_night_date(label: str):
+    return pd.to_datetime(label, format="%Y%m%d", errors="coerce")
 
 
 def load_csv(path_str):
@@ -28,8 +32,6 @@ def load_csv(path_str):
 
 
 def pick_events(df_in, active_col, row_gap=100):
-    # this is for disturbances .. keep one event if hits are too close in rows
-    # about 10 rows per second
     event = pd.Series(0, index=df_in.index, dtype=int)
 
     hit_idx = df_in.index[df_in[active_col] == 1].tolist()
@@ -96,13 +98,11 @@ def clean_night_df(raw):
 def add_disturbance_columns(raw_df):
     df = raw_df.copy()
 
-    # compare to last row
     df["temp_diff_1"] = df["temp_c"].diff()
     df["hum_diff_1"] = df["humidity_pct"].diff()
     df["lux_diff_1"] = df["lux"].diff()
     df["noise_diff_1"] = df["noise_dbfs"].diff()
 
-    # compare to 10 rows ago
     df["temp_diff_10"] = df["temp_c"] - df["temp_c"].shift(10)
     df["hum_diff_10"] = df["humidity_pct"] - df["humidity_pct"].shift(10)
     df["lux_diff_10"] = df["lux"] - df["lux"].shift(10)
@@ -113,7 +113,6 @@ def add_disturbance_columns(raw_df):
     df["lux_diff"] = 0.0
     df["noise_diff"] = 0.0
 
-    # temp
     df["temp_hit"] = 0
     df.loc[df["temp_diff_1"].abs() >= 1.5, "temp_hit"] = 1
     df.loc[
@@ -129,7 +128,6 @@ def add_disturbance_columns(raw_df):
         "temp_diff"
     ] = df["temp_diff_10"]
 
-    # humidity
     df["humidity_hit"] = 0
     df.loc[df["hum_diff_1"].abs() >= 1.5, "humidity_hit"] = 1
     df.loc[
@@ -145,7 +143,6 @@ def add_disturbance_columns(raw_df):
         "hum_diff"
     ] = df["hum_diff_10"]
 
-    # light
     df["light_hit"] = 0
     df.loc[df["lux_diff_1"] >= 20, "light_hit"] = 1
     df.loc[
@@ -161,7 +158,6 @@ def add_disturbance_columns(raw_df):
         "lux_diff"
     ] = df["lux_diff_10"]
 
-    # noise
     df["audio_hit"] = 0
     df.loc[df["noise_diff_1"] >= 1, "audio_hit"] = 1
     df.loc[
@@ -177,7 +173,6 @@ def add_disturbance_columns(raw_df):
         "noise_diff"
     ] = df["noise_diff_10"]
 
-    # final grouped events
     df["temp_event"] = pick_events(df, "temp_hit", row_gap=100)
     df["humidity_event"] = pick_events(df, "humidity_hit", row_gap=100)
     df["light_event"] = pick_events(df, "light_hit", row_gap=100)
@@ -230,9 +225,7 @@ def compute_sleep_score(total_sleep_min, awake_pct, deep_pct, rem_pct, disturban
         duration_score = 20
 
     continuity_score = clamp01_100(100 - (4 * awake_pct))
-
-    stage_score = clamp01_100((deep_pct / 25) * 60 +(rem_pct / 25) * 40)
-
+    stage_score = clamp01_100((deep_pct / 25) * 60 + (rem_pct / 25) * 40)
     disturbance_score = clamp01_100(100 - (5 * disturbances))
 
     if total_sleep_min < 5:
@@ -280,9 +273,11 @@ def compute_night_metrics(path):
         disturbances=disturbances,
     )
 
+    label = extract_night_label(Path(path))
+
     return {
-        "night": extract_night_label(Path(path)),
-        "date": pd.to_datetime(extract_night_label(Path(path)), errors="coerce"),
+        "night": label,
+        "date": parse_night_date(label),
         "sleep_score": sleep_score,
         "total_sleep_min": round(total_sleep_min, 1),
         "total_sleep_hr": round(total_sleep_min / 60.0, 2),
