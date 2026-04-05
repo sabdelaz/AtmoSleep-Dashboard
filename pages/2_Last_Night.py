@@ -46,8 +46,16 @@ def get_night_cached(path_str, mtime):
     return compute_night_metrics(Path(path_str))
 
 
+def format_file_stem_for_display(path_obj):
+    raw = path_obj.stem
+    dt = pd.to_datetime(raw, format="%Y%m%d", errors="coerce")
+    if pd.isna(dt):
+        return raw
+    return dt.strftime("%Y-%m-%d")
+
+
 # ----------------------------
-#  for visuals and desing
+#  for visuals and design
 # ----------------------------
 def kpi(col, title, value):
     col.markdown(
@@ -131,7 +139,7 @@ choice = st.sidebar.selectbox(
     "Session",
     files,
     index=len(files) - 1,
-    format_func=lambda p: p.stem,
+    format_func=format_file_stem_for_display,
 )
 
 # ----------------------------
@@ -199,7 +207,7 @@ light_points = raw_df[raw_df["light_event"] == 1][["timestamp", "lux", "event"]]
 noise_points = raw_df[raw_df["audio_event"] == 1][["timestamp", "noise_dbfs", "event"]].copy()
 
 # ----------------------------
-#  sleep stage fields for chart
+# sleep stage fields for chart
 # ----------------------------
 seg["Stage"] = seg["stage"].replace({
     "awake": "Awake",
@@ -342,9 +350,6 @@ mini_stage(s2, "Light", minutes_to_hours(light_min), "#8BE9FD")
 mini_stage(s3, "REM", minutes_to_hours(rem_min), "#E24DFF")
 mini_stage(s4, "Deep", minutes_to_hours(deep_min), "#1F6BFF")
 
-# ----------------------------
-# tabs
-# ----------------------------
 tab1, tab2 = st.tabs(["Environment", "Disturbances"])
 
 with tab1:
