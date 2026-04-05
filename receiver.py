@@ -10,8 +10,8 @@ SAVE_DIR = r"/Users/seifabdelazim/Dropbox/Mac/Desktop/atmosleep-dashboard/data/h
 
 # github info
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GITHUB_OWNER = "YOUR_GITHUB_USERNAME"
-GITHUB_REPO = "YOUR_REPO_NAME"
+GITHUB_OWNER = "sabdelaz"
+GITHUB_REPO = "atmosleep-dashboard"
 GITHUB_BRANCH = "main"
 
 os.makedirs(SAVE_DIR, exist_ok=True)
