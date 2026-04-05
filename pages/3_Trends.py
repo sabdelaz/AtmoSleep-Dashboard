@@ -75,6 +75,16 @@ st.markdown(
 HISTORY_DIR = Path("data/history")
 
 
+@st.cache_data(show_spinner=False)
+def get_files_cached(folder_str):
+    return sorted(Path(folder_str).glob("*.csv"))
+
+
+@st.cache_data(show_spinner=False)
+def get_night_cached(path_str, mtime):
+    return compute_night_metrics(Path(path_str))
+
+
 # ----------------------------
 # small helpers
 # ----------------------------
@@ -104,7 +114,6 @@ def insight_box(col, title, main, sub):
 
 
 def nice_num(x):
-    # if number is whole, dont show .0
     x = float(x)
     if x.is_integer():
         return str(int(x))
@@ -347,7 +356,7 @@ def make_stage_mix_chart(data):
 # ----------------------------
 # get the last 7 files
 # ----------------------------
-files = sorted(HISTORY_DIR.glob("night_*.csv"))
+files = get_files_cached(str(HISTORY_DIR))
 
 if not files:
     st.warning("No session data found in data/history/.")
@@ -358,7 +367,7 @@ last_files = files[-7:]
 rows = []
 for path in last_files:
     try:
-        rows.append(compute_night_metrics(path))
+        rows.append(get_night_cached(str(path), path.stat().st_mtime))
     except Exception:
         pass
 
@@ -368,13 +377,11 @@ if not rows:
 
 trend_df = pd.DataFrame(rows).sort_values("date").reset_index(drop=True)
 
-# include every night, even score 0
 best_row = trend_df.loc[trend_df["sleep_score"].idxmax()]
 worst_row = trend_df.loc[trend_df["sleep_score"].idxmin()]
 
 latest_row = trend_df.iloc[-1]
 
-# averages
 avg_sleep_score = trend_df["sleep_score"].mean()
 avg_total_sleep_min = trend_df["total_sleep_min"].mean()
 avg_disturbances = trend_df["disturbances"].mean()
@@ -425,7 +432,6 @@ st.write("")
 
 # ----------------------------
 # insight cards
-# only keep 2
 # ----------------------------
 i1, i2 = st.columns(2)
 
@@ -455,11 +461,6 @@ st.write("")
 
 # ----------------------------
 # charts
-# order you asked for:
-# 1) stage mix
-# 2) disturbances
-# 3) total sleep
-# 4) sleep score
 # ----------------------------
 st.altair_chart(make_stage_mix_chart(trend_df), use_container_width=True)
 
