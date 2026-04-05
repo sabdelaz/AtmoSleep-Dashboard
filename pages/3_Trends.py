@@ -7,9 +7,6 @@ from utils.sleep_metrics import compute_night_metrics, minutes_to_hours
 
 st.set_page_config(page_title="My Sleep Trends", layout="wide", initial_sidebar_state="collapsed")
 
-# ----------------------------
-# background / styling
-# ----------------------------
 st.markdown(
     """
     <style>
@@ -85,9 +82,6 @@ def get_night_cached(path_str, mtime):
     return compute_night_metrics(Path(path_str))
 
 
-# ----------------------------
-# small helpers
-# ----------------------------
 def kpi(col, title, value):
     col.markdown(
         f"""
@@ -180,9 +174,6 @@ def get_trend_text(df, col, label, higher_is_better=True, is_percent=False, is_h
         return f"{label} improved over the week (-{diff_text})."
 
 
-# ----------------------------
-# chart helpers
-# ----------------------------
 def make_line_chart(data, y_col, title, color, y_title=""):
     line = (
         alt.Chart(data)
@@ -353,9 +344,6 @@ def make_stage_mix_chart(data):
     return chart
 
 
-# ----------------------------
-# get the last 7 files
-# ----------------------------
 files = get_files_cached(str(HISTORY_DIR))
 
 if not files:
@@ -379,7 +367,6 @@ trend_df = pd.DataFrame(rows).sort_values("date").reset_index(drop=True)
 
 best_row = trend_df.loc[trend_df["sleep_score"].idxmax()]
 worst_row = trend_df.loc[trend_df["sleep_score"].idxmin()]
-
 latest_row = trend_df.iloc[-1]
 
 avg_sleep_score = trend_df["sleep_score"].mean()
@@ -388,12 +375,9 @@ avg_disturbances = trend_df["disturbances"].mean()
 avg_deep_pct = trend_df["deep_pct"].mean()
 avg_rem_pct = trend_df["rem_pct"].mean()
 
-best_label = pretty_date(best_row["night"])
-worst_label = pretty_date(worst_row["night"])
+best_label = pretty_date(best_row["date"])
+worst_label = pretty_date(worst_row["date"])
 
-# ----------------------------
-# title card
-# ----------------------------
 st.markdown(
     f"""
     <div class="card">
@@ -418,9 +402,6 @@ st.markdown(
 
 st.write("")
 
-# ----------------------------
-# top kpis
-# ----------------------------
 k1, k2, k3, k4, k5 = st.columns(5)
 kpi(k1, "Average Sleep Score", nice_num(avg_sleep_score))
 kpi(k2, "Average Total Sleep", minutes_to_hours(avg_total_sleep_min))
@@ -430,9 +411,6 @@ kpi(k5, "Average REM", f"{nice_num(avg_rem_pct)}%")
 
 st.write("")
 
-# ----------------------------
-# insight cards
-# ----------------------------
 i1, i2 = st.columns(2)
 
 insight_box(
@@ -459,9 +437,6 @@ insight_box(
 
 st.write("")
 
-# ----------------------------
-# charts
-# ----------------------------
 st.altair_chart(make_stage_mix_chart(trend_df), use_container_width=True)
 
 c1, c2 = st.columns(2)
@@ -501,9 +476,6 @@ st.altair_chart(
     use_container_width=True
 )
 
-# ----------------------------
-# bottom comparison table
-# ----------------------------
 st.subheader("Latest Night vs Average")
 
 compare_df = pd.DataFrame([
@@ -541,13 +513,10 @@ compare_df = pd.DataFrame([
 
 st.dataframe(compare_df, use_container_width=True, hide_index=True)
 
-# ----------------------------
-# nightly summary table
-# ----------------------------
 st.subheader("Nightly Summary")
 
 show_df = trend_df.copy()
-show_df["Night"] = show_df["date"].dt.strftime("%Y-%m-%d")
+show_df["Night"] = show_df["night"]
 show_df["Sleep Score"] = show_df["sleep_score"].apply(nice_num)
 show_df["Total Sleep"] = show_df["total_sleep_min"].apply(minutes_to_hours)
 show_df["Disturbances"] = show_df["disturbances"].apply(nice_num)
