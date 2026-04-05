@@ -121,99 +121,44 @@ def add_disturbance_columns(raw_df):
 
     df = raw_df.copy()
 
-    # ===== STEP 1: immediate change (fast spike) =====
-    df["temp_diff_1"] = df["temp_c"].diff()
-    df["hum_diff_1"] = df["humidity_pct"].diff()
-    df["lux_diff_1"] = df["lux"].diff()
-    df["noise_diff_1"] = df["noise_dbfs"].diff()
-
-    # ===== STEP 2: change over 100 rows (~10 sec) =====
-    df["temp_diff_100"] = df["temp_c"] - df["temp_c"].shift(100)
-    df["hum_diff_100"] = df["humidity_pct"] - df["humidity_pct"].shift(100)
+    df["temp_diff_200"] = df["temp_c"] - df["temp_c"].shift(200)
+    df["hum_diff_200"] = df["humidity_pct"] - df["humidity_pct"].shift(200)
     df["lux_diff_100"] = df["lux"] - df["lux"].shift(100)
     df["noise_diff_100"] = df["noise_dbfs"] - df["noise_dbfs"].shift(100)
 
-    # store final chosen diff (for display)
+    # just saving the actual diff that triggered
     df["temp_diff"] = 0.0
     df["hum_diff"] = 0.0
     df["lux_diff"] = 0.0
     df["noise_diff"] = 0.0
 
     # ===== TEMP =====
+    # only compare to 200 rows ago
     df["temp_hit"] = 0
-
-    # fast spike
-    df.loc[df["temp_diff_1"].abs() >= 1.5, "temp_hit"] = 1
-
-    # slow change over 10 sec
-    df.loc[
-        (df["temp_hit"] == 0) &
-        (df["temp_diff_100"].abs() >= 1.5),
-        "temp_hit"
-    ] = 1
-
-    # store which diff triggered it
-    df.loc[df["temp_diff_1"].abs() >= 1.5, "temp_diff"] = df["temp_diff_1"]
-    df.loc[
-        (df["temp_diff"].abs() < 1.5) &
-        (df["temp_diff_100"].abs() >= 1.5),
-        "temp_diff"
-    ] = df["temp_diff_100"]
+    df.loc[df["temp_diff_200"].abs() >= 1, "temp_hit"] = 1
+    df.loc[df["temp_diff_200"].abs() >= 1, "temp_diff"] = df["temp_diff_200"]
 
     # ===== HUMIDITY =====
+    # only compare to 200 rows ago
     df["humidity_hit"] = 0
-
-    df.loc[df["hum_diff_1"].abs() >= 1.5, "humidity_hit"] = 1
-    df.loc[
-        (df["humidity_hit"] == 0) &
-        (df["hum_diff_100"].abs() >= 1.5),
-        "humidity_hit"
-    ] = 1
-
-    df.loc[df["hum_diff_1"].abs() >= 1.5, "hum_diff"] = df["hum_diff_1"]
-    df.loc[
-        (df["hum_diff"].abs() < 1.5) &
-        (df["hum_diff_100"].abs() >= 1.5),
-        "hum_diff"
-    ] = df["hum_diff_100"]
+    df.loc[df["hum_diff_200"].abs() >= 15, "humidity_hit"] = 1
+    df.loc[df["hum_diff_200"].abs() >= 15, "hum_diff"] = df["hum_diff_200"]
 
     # ===== LIGHT =====
+    # only compare to 100 rows ago
     df["light_hit"] = 0
-
-    df.loc[df["lux_diff_1"] >= 20, "light_hit"] = 1
-    df.loc[
-        (df["light_hit"] == 0) &
-        (df["lux_diff_100"] >= 20),
-        "light_hit"
-    ] = 1
-
-    df.loc[df["lux_diff_1"] >= 20, "lux_diff"] = df["lux_diff_1"]
-    df.loc[
-        (df["lux_diff"] < 20) &
-        (df["lux_diff_100"] >= 20),
-        "lux_diff"
-    ] = df["lux_diff_100"]
+    df.loc[df["lux_diff_100"] >= 100, "light_hit"] = 1
+    df.loc[df["lux_diff_100"] >= 100, "lux_diff"] = df["lux_diff_100"]
 
     # ===== AUDIO =====
+    # only compare to 100 rows ago
     df["audio_hit"] = 0
+    df.loc[df["noise_diff_100"] >= 0.7, "audio_hit"] = 1
+    df.loc[df["noise_diff_100"] >= 0.7, "noise_diff"] = df["noise_diff_100"]
 
-    df.loc[df["noise_diff_1"] >= 1, "audio_hit"] = 1
-    df.loc[
-        (df["audio_hit"] == 0) &
-        (df["noise_diff_100"] >= 1),
-        "audio_hit"
-    ] = 1
-
-    df.loc[df["noise_diff_1"] >= 1, "noise_diff"] = df["noise_diff_1"]
-    df.loc[
-        (df["noise_diff"] < 1) &
-        (df["noise_diff_100"] >= 1),
-        "noise_diff"
-    ] = df["noise_diff_100"]
-
-    # ===== FINAL STEP: limit duplicates =====
+    # ===== FINAL STEP: stop duplicates from counting too close together =====
     df["temp_event"] = pick_events(df, "temp_hit", row_gap=100)
-    df["humidity_event"] = pick_events(df, "humidity_hit", row_gap=100)
+    df["humidity_event"] = pick_events(df, "humidity_hit", row_gap=300)
     df["light_event"] = pick_events(df, "light_hit", row_gap=100)
     df["audio_event"] = pick_events(df, "audio_hit", row_gap=100)
 
