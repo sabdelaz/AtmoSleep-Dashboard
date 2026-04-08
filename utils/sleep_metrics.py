@@ -1,3 +1,4 @@
+import streamlit as st
 import pandas as pd
 from pathlib import Path
 
@@ -19,31 +20,30 @@ def minutes_to_hours(m):
     return f"{h}h {mm}m" if h > 0 else f"{mm}m"
 
 
-# convert filename like 20260403 → 2026-04-03 (for display)
 def extract_night_label(path: Path) -> str:
     raw = path.stem
     dt = pd.to_datetime(raw, format="%Y%m%d", errors="coerce")
-
     if pd.isna(dt):
         return raw
-
     return dt.strftime("%Y-%m-%d")
 
 
-# actual date object (used for sorting)
 def parse_night_date_from_path(path: Path):
     return pd.to_datetime(path.stem, format="%Y%m%d", errors="coerce")
 
 
-# read csv + clean column names
+@st.cache_data(show_spinner=False)
+def list_csv_files(folder_str: str):
+    return sorted(Path(folder_str).glob("*.csv"))
+
+
+@st.cache_data(show_spinner=False)
 def load_csv(path_str):
     raw = pd.read_csv(path_str)
     raw.columns = [str(c).strip() for c in raw.columns]
     return raw
 
 
-# this makes sure we don’t count multiple disturbances in a short time
-# basically → max 1 disturbance every ~10 seconds (100 rows)
 def pick_events(df_in, active_col, row_gap=100):
     event = pd.Series(0, index=df_in.index, dtype=int)
 
@@ -58,10 +58,7 @@ def pick_events(df_in, active_col, row_gap=100):
     return event
 
 
-# clean + standardize dataframe
 def clean_night_df(raw):
-
-    # rename columns from ESP32 → nicer names
     col_map = {
         "timestamp": "timestamp",
         "sleep_stage": "stage",
@@ -83,17 +80,14 @@ def clean_night_df(raw):
 
     df = raw.rename(columns=col_map).copy()
 
-    # keep only needed columns
     keep_cols = [
         "timestamp", "stage", "temp_c", "humidity_pct", "lux", "noise_dbfs",
         "motion", "centroid_hz", "b1", "b2", "b3", "b4"
     ]
     df = df[[c for c in keep_cols if c in df.columns]]
 
-    # convert timestamp to actual datetime
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 
-    # convert all numeric columns safely
     num_cols = [
         "temp_c", "humidity_pct", "lux", "noise_dbfs",
         "motion", "centroid_hz", "b1", "b2", "b3", "b4"
@@ -103,11 +97,8 @@ def clean_night_df(raw):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").ffill().fillna(0)
 
-    # normalize stage values
     df["stage"] = df["stage"].astype(str).str.strip().str.lower()
     df = df[df["stage"].isin(["awake", "light", "deep", "rem"])]
-
-    # sort by time
     df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
 
     if df.empty:
@@ -116,9 +107,7 @@ def clean_night_df(raw):
     return df
 
 
-# THIS IS THE MAIN DISTURBANCE LOGIC
 def add_disturbance_columns(raw_df):
-
     df = raw_df.copy()
 
     df["temp_diff_200"] = df["temp_c"] - df["temp_c"].shift(200)
@@ -126,37 +115,27 @@ def add_disturbance_columns(raw_df):
     df["lux_diff_100"] = df["lux"] - df["lux"].shift(100)
     df["noise_diff_100"] = df["noise_dbfs"] - df["noise_dbfs"].shift(100)
 
-    # just saving the actual diff that triggered
     df["temp_diff"] = 0.0
     df["hum_diff"] = 0.0
     df["lux_diff"] = 0.0
     df["noise_diff"] = 0.0
 
-    # ===== TEMP =====
-    # only compare to 200 rows ago
     df["temp_hit"] = 0
     df.loc[df["temp_diff_200"].abs() >= 1, "temp_hit"] = 1
     df.loc[df["temp_diff_200"].abs() >= 1, "temp_diff"] = df["temp_diff_200"]
 
-    # ===== HUMIDITY =====
-    # only compare to 200 rows ago
     df["humidity_hit"] = 0
     df.loc[df["hum_diff_200"].abs() >= 15, "humidity_hit"] = 1
     df.loc[df["hum_diff_200"].abs() >= 15, "hum_diff"] = df["hum_diff_200"]
 
-    # ===== LIGHT =====
-    # only compare to 100 rows ago
     df["light_hit"] = 0
     df.loc[df["lux_diff_100"] >= 100, "light_hit"] = 1
     df.loc[df["lux_diff_100"] >= 100, "lux_diff"] = df["lux_diff_100"]
 
-    # ===== AUDIO =====
-    # only compare to 100 rows ago
     df["audio_hit"] = 0
     df.loc[df["noise_diff_100"] >= 0.7, "audio_hit"] = 1
     df.loc[df["noise_diff_100"] >= 0.7, "noise_diff"] = df["noise_diff_100"]
 
-    # ===== FINAL STEP: stop duplicates from counting too close together =====
     df["temp_event"] = pick_events(df, "temp_hit", row_gap=100)
     df["humidity_event"] = pick_events(df, "humidity_hit", row_gap=300)
     df["light_event"] = pick_events(df, "light_hit", row_gap=100)
@@ -166,7 +145,6 @@ def add_disturbance_columns(raw_df):
 
 
 def get_stage_segments(raw_df):
-
     tmp = raw_df[["timestamp", "stage"]].copy()
     tmp = tmp.sort_values("timestamp").reset_index(drop=True)
 
@@ -189,7 +167,6 @@ def get_stage_segments(raw_df):
 
 
 def compute_sleep_score(total_sleep_min, awake_pct, deep_pct, rem_pct, disturbances):
-
     total_sleep_hours = total_sleep_min / 60.0
 
     if total_sleep_hours >= 7:
@@ -218,16 +195,13 @@ def compute_sleep_score(total_sleep_min, awake_pct, deep_pct, rem_pct, disturban
     )
 
 
-def compute_night_metrics(path):
+@st.cache_data(show_spinner=False)
+def compute_night_metrics_cached(path_str: str, mtime: float):
+    path = Path(path_str)
 
-    path = Path(path)
-
-    raw = load_csv(str(path))
+    raw = load_csv(path_str)
     raw_df = clean_night_df(raw)
-
-    # 🔥 disturbances computed HERE
     raw_df = add_disturbance_columns(raw_df)
-
     seg = get_stage_segments(raw_df)
 
     deep_min = float(seg.loc[seg["stage"] == "deep", "duration_min"].sum())
@@ -276,3 +250,14 @@ def compute_night_metrics(path):
         "raw_df": raw_df,
         "seg": seg,
     }
+
+
+@st.cache_data(show_spinner=False)
+def get_recent_nights_cached(folder_str: str, file_keys: tuple):
+    rows = []
+    for path_str, mtime in file_keys:
+        try:
+            rows.append(compute_night_metrics_cached(path_str, mtime))
+        except Exception:
+            pass
+    return rows
