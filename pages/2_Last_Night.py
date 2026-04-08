@@ -572,19 +572,15 @@ with tab1:
 with tab2:
     st.markdown("#### Disturbances")
 
-   # keep only rows where ANY event happened
-        disturbance_rows = raw_df[
+    disturbance_rows = raw_df[
         (raw_df["temp_event"] == 1) |
         (raw_df["humidity_event"] == 1) |
         (raw_df["light_event"] == 1) |
         (raw_df["audio_event"] == 1)
-        ][["timestamp", "event"]].copy()
-        
-        # remove exact duplicates (just in case)
-        disturbance_rows = disturbance_rows.drop_duplicates(subset=["timestamp"])
-        
-        # sort cleanly
-        disturbance_rows = disturbance_rows.sort_values("timestamp").reset_index(drop=True)
+    ][["timestamp", "event"]].copy()
+
+    disturbance_rows = disturbance_rows.drop_duplicates(subset=["timestamp"])
+    disturbance_rows = disturbance_rows.sort_values("timestamp").reset_index(drop=True)
 
     if disturbance_rows.empty:
         st.info("No disturbances recorded.")
