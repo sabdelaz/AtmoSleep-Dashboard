@@ -3,8 +3,11 @@ import altair as alt
 import pandas as pd
 from pathlib import Path
 
-from utils.sleep_metrics import compute_night_metrics, minutes_to_hours
-
+from utils.sleep_metrics import (
+    compute_night_metrics_cached,
+    list_csv_files,
+    minutes_to_hours,
+)
 st.set_page_config(page_title="Last Night", layout="wide", initial_sidebar_state="collapsed")
 
 # background
@@ -34,16 +37,6 @@ st.markdown(
 )
 
 HISTORY_DIR = Path("data/history")
-
-
-@st.cache_data(show_spinner=False)
-def get_files_cached(folder_str):
-    return sorted(Path(folder_str).glob("*.csv"))
-
-
-@st.cache_data(show_spinner=False)
-def get_night_cached(path_str, mtime):
-    return compute_night_metrics(Path(path_str))
 
 
 def format_file_stem_for_display(path_obj):
@@ -130,7 +123,7 @@ def build_event(row):
 # ----------------------------
 # pick file bar on the left
 # ----------------------------
-files = get_files_cached(str(HISTORY_DIR))
+files = list_csv_files(str(HISTORY_DIR))
 if not files:
     st.warning("No session data found in data/history/.")
     st.stop()
@@ -145,7 +138,7 @@ choice = st.sidebar.selectbox(
 # ----------------------------
 # load all nightly metrics from helper
 # ----------------------------
-night = get_night_cached(str(choice), choice.stat().st_mtime)
+night = compute_night_metrics_cached(str(choice), choice.stat().st_mtime)
 
 raw_df = night["raw_df"].copy()
 seg = night["seg"].copy()
