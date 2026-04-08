@@ -3,8 +3,12 @@ import altair as alt
 import pandas as pd
 from pathlib import Path
 
-from utils.sleep_metrics import compute_night_metrics, minutes_to_hours
-
+from utils.sleep_metrics import (
+    compute_night_metrics_cached,
+    get_recent_nights_cached,
+    list_csv_files,
+    minutes_to_hours,
+)
 st.set_page_config(page_title="My Sleep Trends", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown(
@@ -70,16 +74,6 @@ st.markdown(
 )
 
 HISTORY_DIR = Path("data/history")
-
-
-@st.cache_data(show_spinner=False)
-def get_files_cached(folder_str):
-    return sorted(Path(folder_str).glob("*.csv"))
-
-
-@st.cache_data(show_spinner=False)
-def get_night_cached(path_str, mtime):
-    return compute_night_metrics(Path(path_str))
 
 
 def kpi(col, title, value):
@@ -344,20 +338,15 @@ def make_stage_mix_chart(data):
     return chart
 
 
-files = get_files_cached(str(HISTORY_DIR))
+files = list_csv_files(str(HISTORY_DIR))
 
 if not files:
     st.warning("No session data found in data/history/.")
     st.stop()
 
 last_files = files[-7:]
-
-rows = []
-for path in last_files:
-    try:
-        rows.append(get_night_cached(str(path), path.stat().st_mtime))
-    except Exception:
-        pass
+file_keys = tuple((str(path), path.stat().st_mtime) for path in last_files)
+rows = get_recent_nights_cached(str(HISTORY_DIR), file_keys)
 
 if not rows:
     st.error("Could not build trends from the available files.")
