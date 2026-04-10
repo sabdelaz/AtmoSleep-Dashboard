@@ -165,20 +165,9 @@ domain_end = raw_df["timestamp"].max()
 
 # ----------------------------
 # graph data
-# smooth only graph lines
+# keep full row resolution for environment charts
 # ----------------------------
-total_hours = (domain_end - domain_start).total_seconds() / 3600
-
-if total_hours > 1:
-    graph_df = (
-        raw_df.set_index("timestamp")
-        .resample("30s")
-        .mean(numeric_only=True)
-        .reset_index()
-    )
-else:
-    graph_df = raw_df.copy()
-
+graph_df = raw_df.copy()
 graph_df = graph_df.sort_values("timestamp").reset_index(drop=True)
 
 for c in ["temp_c", "humidity_pct", "lux", "noise_dbfs"]:
@@ -253,18 +242,18 @@ kpi(k6, "Light / Awake", f"{light_pct}% / {awake_pct}%")
 
 # ----------------------------
 # sleep stages
-# use 30-second increments so the chart is much lighter
+# use 10-second increments so the chart is lighter
 # ----------------------------
 st.subheader("Sleep Stages")
 
 sleep_df = raw_df[["timestamp", "stage"]].copy()
 sleep_df = sleep_df.dropna(subset=["timestamp", "stage"]).sort_values("timestamp").reset_index(drop=True)
 
-# resample stage data to 30-second steps
-# taking the last stage in each 30-second bucket is fine here
-sleep_30s = (
+# resample stage data to 10-second steps
+# taking the last stage in each 10-second bucket is fine here
+sleep_10s = (
     sleep_df.set_index("timestamp")
-    .resample("30s")
+    .resample("10s")
     .agg({
         "stage": lambda s: s.dropna().iloc[-1] if not s.dropna().empty else None
     })
@@ -273,11 +262,11 @@ sleep_30s = (
 )
 
 stage_y = {"deep": 0, "light": 1, "rem": 2, "awake": 3}
-sleep_30s["y"] = sleep_30s["stage"].map(stage_y)
-sleep_30s["x2"] = sleep_30s["timestamp"].shift(-1)
-sleep_30s["y2"] = sleep_30s["y"].shift(-1)
+sleep_10s["y"] = sleep_10s["stage"].map(stage_y)
+sleep_10s["x2"] = sleep_10s["timestamp"].shift(-1)
+sleep_10s["y2"] = sleep_10s["y"].shift(-1)
 
-seg_df = sleep_30s.dropna(subset=["x2", "y2"]).copy()
+seg_df = sleep_10s.dropna(subset=["x2", "y2"]).copy()
 
 colors = {
     "deep": "#1F6BFF",
