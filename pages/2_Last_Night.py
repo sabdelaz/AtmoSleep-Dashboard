@@ -49,7 +49,7 @@ def format_file_stem_for_display(path_obj):
 
 
 # ----------------------------
-# for visuals and design
+#  for visuals and design
 # ----------------------------
 def kpi(col, title, value):
     col.markdown(
@@ -137,8 +137,7 @@ choice = st.sidebar.selectbox(
 )
 
 # ----------------------------
-# load only one detailed night
-# this page is allowed to use raw_df because it's only one file
+# load all nightly metrics from helper
 # ----------------------------
 night = compute_night_detail_cached(str(choice), choice.stat().st_mtime)
 
@@ -188,8 +187,7 @@ for c in ["temp_c", "humidity_pct", "lux", "noise_dbfs"]:
 
 # ----------------------------
 # disturbance rows only
-# do NOT build event text for the whole file
-# only for actual disturbance rows
+# only build event text where there is actually an event
 # ----------------------------
 disturbance_rows = raw_df[
     (raw_df["temp_event"] == 1) |
@@ -201,7 +199,7 @@ disturbance_rows = raw_df[
 if not disturbance_rows.empty:
     disturbance_rows["event"] = disturbance_rows.apply(build_event_text, axis=1)
 else:
-    disturbance_rows["event"] = []
+    disturbance_rows["event"] = pd.Series(dtype="object")
 
 temp_rules = disturbance_rows[disturbance_rows["temp_event"] == 1][["timestamp", "event"]].copy()
 hum_rules = disturbance_rows[disturbance_rows["humidity_event"] == 1][["timestamp", "event"]].copy()
@@ -214,8 +212,7 @@ light_points = disturbance_rows[disturbance_rows["light_event"] == 1][["timestam
 noise_points = disturbance_rows[disturbance_rows["audio_event"] == 1][["timestamp", "noise_dbfs", "event"]].copy()
 
 # ----------------------------
-# sleep stage fields for chart
-# use seg directly instead of rebuilding from raw_df
+# sleep stage fields for chart hover
 # ----------------------------
 seg["Stage"] = seg["stage"].replace({
     "awake": "Awake",
@@ -231,11 +228,6 @@ seg["y"] = seg["stage"].map({
     "rem": 2,
     "awake": 3
 })
-
-# make sure zero-length segments are still visible
-seg["end_plot"] = seg["end"]
-same_mask = seg["end_plot"] <= seg["start"]
-seg.loc[same_mask, "end_plot"] = seg.loc[same_mask, "start"] + pd.Timedelta(seconds=1)
 
 # ----------------------------
 # header
@@ -356,7 +348,8 @@ chart = (
 )
 
 st.altair_chart(chart, use_container_width=True)
-  
+
+s1, s2, s3, s4 = st.columns(4)
 mini_stage(s1, "Awake", minutes_to_hours(awake_min), "#F5F1EB")
 mini_stage(s2, "Light", minutes_to_hours(light_min), "#8BE9FD")
 mini_stage(s3, "REM", minutes_to_hours(rem_min), "#E24DFF")
