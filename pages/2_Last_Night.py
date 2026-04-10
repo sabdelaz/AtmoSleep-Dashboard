@@ -4,10 +4,11 @@ import pandas as pd
 from pathlib import Path
 
 from utils.sleep_metrics import (
-    compute_night_metrics_cached,
+    compute_night_detail_cached,
     list_csv_files,
     minutes_to_hours,
 )
+
 st.set_page_config(page_title="Last Night", layout="wide", initial_sidebar_state="collapsed")
 
 # background
@@ -48,7 +49,7 @@ def format_file_stem_for_display(path_obj):
 
 
 # ----------------------------
-#  for visuals and design
+# for visuals and design
 # ----------------------------
 def kpi(col, title, value):
     col.markdown(
@@ -102,7 +103,7 @@ def show_legend(items):
     st.markdown(html, unsafe_allow_html=True)
 
 
-def build_event(row):
+def build_event_text(row):
     items = []
 
     if row["temp_event"] == 1:
@@ -136,9 +137,10 @@ choice = st.sidebar.selectbox(
 )
 
 # ----------------------------
-# load all nightly metrics from helper
+# load only one detailed night
+# this page is allowed to use raw_df because it's only one file
 # ----------------------------
-night = compute_night_metrics_cached(str(choice), choice.stat().st_mtime)
+night = compute_night_detail_cached(str(choice), choice.stat().st_mtime)
 
 raw_df = night["raw_df"].copy()
 seg = night["seg"].copy()
@@ -185,22 +187,35 @@ for c in ["temp_c", "humidity_pct", "lux", "noise_dbfs"]:
         graph_df[c] = graph_df[c].ffill().bfill()
 
 # ----------------------------
-# event text
+# disturbance rows only
+# do NOT build event text for the whole file
+# only for actual disturbance rows
 # ----------------------------
-raw_df["event"] = raw_df.apply(build_event, axis=1)
+disturbance_rows = raw_df[
+    (raw_df["temp_event"] == 1) |
+    (raw_df["humidity_event"] == 1) |
+    (raw_df["light_event"] == 1) |
+    (raw_df["audio_event"] == 1)
+].copy()
 
-temp_rules = raw_df[raw_df["temp_event"] == 1][["timestamp", "event"]].copy()
-hum_rules = raw_df[raw_df["humidity_event"] == 1][["timestamp", "event"]].copy()
-light_rules = raw_df[raw_df["light_event"] == 1][["timestamp", "event"]].copy()
-noise_rules = raw_df[raw_df["audio_event"] == 1][["timestamp", "event"]].copy()
+if not disturbance_rows.empty:
+    disturbance_rows["event"] = disturbance_rows.apply(build_event_text, axis=1)
+else:
+    disturbance_rows["event"] = []
 
-temp_points = raw_df[raw_df["temp_event"] == 1][["timestamp", "temp_c", "event"]].copy()
-hum_points = raw_df[raw_df["humidity_event"] == 1][["timestamp", "humidity_pct", "event"]].copy()
-light_points = raw_df[raw_df["light_event"] == 1][["timestamp", "lux", "event"]].copy()
-noise_points = raw_df[raw_df["audio_event"] == 1][["timestamp", "noise_dbfs", "event"]].copy()
+temp_rules = disturbance_rows[disturbance_rows["temp_event"] == 1][["timestamp", "event"]].copy()
+hum_rules = disturbance_rows[disturbance_rows["humidity_event"] == 1][["timestamp", "event"]].copy()
+light_rules = disturbance_rows[disturbance_rows["light_event"] == 1][["timestamp", "event"]].copy()
+noise_rules = disturbance_rows[disturbance_rows["audio_event"] == 1][["timestamp", "event"]].copy()
+
+temp_points = disturbance_rows[disturbance_rows["temp_event"] == 1][["timestamp", "temp_c", "event"]].copy()
+hum_points = disturbance_rows[disturbance_rows["humidity_event"] == 1][["timestamp", "humidity_pct", "event"]].copy()
+light_points = disturbance_rows[disturbance_rows["light_event"] == 1][["timestamp", "lux", "event"]].copy()
+noise_points = disturbance_rows[disturbance_rows["audio_event"] == 1][["timestamp", "noise_dbfs", "event"]].copy()
 
 # ----------------------------
 # sleep stage fields for chart
+# use seg directly instead of rebuilding from raw_df
 # ----------------------------
 seg["Stage"] = seg["stage"].replace({
     "awake": "Awake",
@@ -216,6 +231,11 @@ seg["y"] = seg["stage"].map({
     "rem": 2,
     "awake": 3
 })
+
+# make sure zero-length segments are still visible
+seg["end_plot"] = seg["end"]
+same_mask = seg["end_plot"] <= seg["start"]
+seg.loc[same_mask, "end_plot"] = seg.loc[same_mask, "start"] + pd.Timedelta(seconds=1)
 
 # ----------------------------
 # header
@@ -244,16 +264,6 @@ kpi(k6, "Light / Awake", f"{light_pct}% / {awake_pct}%")
 # ----------------------------
 st.subheader("Sleep Stages")
 
-sleep_df = raw_df[["timestamp", "stage"]].copy()
-sleep_df = sleep_df.dropna(subset=["timestamp", "stage"]).sort_values("timestamp").reset_index(drop=True)
-
-stage_y = {"deep": 0, "light": 1, "rem": 2, "awake": 3}
-sleep_df["y"] = sleep_df["stage"].map(stage_y)
-sleep_df["x2"] = sleep_df["timestamp"].shift(-1)
-sleep_df["y2"] = sleep_df["y"].shift(-1)
-
-seg_df = sleep_df.dropna(subset=["x2", "y2"]).copy()
-
 colors = {
     "deep": "#1F6BFF",
     "light": "#8BE9FD",
@@ -262,7 +272,7 @@ colors = {
 }
 
 x_enc = alt.X(
-    "timestamp:T",
+    "start:T",
     title="",
     scale=alt.Scale(domain=[domain_start, domain_end]),
     axis=alt.Axis(
@@ -292,34 +302,21 @@ y_enc = alt.Y(
     ),
 )
 
-layers = []
-
-for stage in ["deep", "light", "rem", "awake"]:
-    data = seg_df[seg_df["stage"] == stage]
-
-    layers.append(
-        alt.Chart(data).mark_line(
-            interpolate="step-after",
-            strokeWidth=4,
-            color=colors[stage],
-            strokeCap="round",
-            strokeJoin="round",
-        ).encode(
-            x=x_enc,
-            y=y_enc,
-            x2="x2:T",
-            y2="y2:Q",
-            tooltip=[]
-        )
-    )
-
-hover_layer = (
+sleep_chart = (
     alt.Chart(seg)
-    .mark_bar(opacity=0)
+    .mark_bar(cornerRadius=3)
     .encode(
-        x=alt.X("start:T", scale=alt.Scale(domain=[domain_start, domain_end])),
-        x2="end:T",
-        y=alt.Y("y:Q", scale=alt.Scale(domain=[-0.2, 3.2])),
+        x=x_enc,
+        x2="end_plot:T",
+        y=y_enc,
+        color=alt.Color(
+            "stage:N",
+            scale=alt.Scale(
+                domain=["deep", "light", "rem", "awake"],
+                range=[colors["deep"], colors["light"], colors["rem"], colors["awake"]]
+            ),
+            legend=None,
+        ),
         tooltip=[
             alt.Tooltip("Stage:N", title="Stage"),
             alt.Tooltip("start_label:N", title="From"),
@@ -327,15 +324,10 @@ hover_layer = (
         ],
     )
     .properties(height=320)
-)
-
-chart = (
-    alt.layer(*layers, hover_layer)
-    .properties(height=320)
     .configure_view(strokeOpacity=0)
 )
 
-st.altair_chart(chart, use_container_width=True)
+st.altair_chart(sleep_chart, use_container_width=True)
 
 s1, s2, s3, s4 = st.columns(4)
 mini_stage(s1, "Awake", minutes_to_hours(awake_min), "#F5F1EB")
@@ -565,24 +557,18 @@ with tab1:
 with tab2:
     st.markdown("#### Disturbances")
 
-    disturbance_rows = raw_df[
-        (raw_df["temp_event"] == 1) |
-        (raw_df["humidity_event"] == 1) |
-        (raw_df["light_event"] == 1) |
-        (raw_df["audio_event"] == 1)
-    ][["timestamp", "event"]].copy()
+    disturbance_table = disturbance_rows[["timestamp", "event"]].copy()
+    disturbance_table = disturbance_table.drop_duplicates(subset=["timestamp"])
+    disturbance_table = disturbance_table.sort_values("timestamp").reset_index(drop=True)
 
-    disturbance_rows = disturbance_rows.drop_duplicates(subset=["timestamp"])
-    disturbance_rows = disturbance_rows.sort_values("timestamp").reset_index(drop=True)
-
-    if disturbance_rows.empty:
+    if disturbance_table.empty:
         st.info("No disturbances recorded.")
     else:
-        disturbance_rows["Time"] = disturbance_rows["timestamp"].dt.strftime("%H:%M:%S")
-        disturbance_rows = disturbance_rows.rename(columns={"event": "Event"})
+        disturbance_table["Time"] = disturbance_table["timestamp"].dt.strftime("%H:%M:%S")
+        disturbance_table = disturbance_table.rename(columns={"event": "Event"})
 
         st.dataframe(
-            disturbance_rows[["Time", "Event"]],
+            disturbance_table[["Time", "Event"]],
             use_container_width=True,
             hide_index=True
         )
