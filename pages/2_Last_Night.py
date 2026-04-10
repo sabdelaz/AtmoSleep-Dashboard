@@ -162,12 +162,24 @@ awake_pct = int(round(night["awake_pct"]))
 
 domain_start = raw_df["timestamp"].min()
 domain_end = raw_df["timestamp"].max()
+total_minutes = (domain_end - domain_start).total_seconds() / 60.0
 
 # ----------------------------
 # graph data
-# keep full row resolution for environment charts
+# short recording -> raw rows
+# long recording -> 10-second resolution
+# disturbance logic still stays on raw_df
 # ----------------------------
-graph_df = raw_df.copy()
+if total_minutes < 10:
+    graph_df = raw_df.copy()
+else:
+    graph_df = (
+        raw_df.set_index("timestamp")
+        .resample("10s")
+        .mean(numeric_only=True)
+        .reset_index()
+    )
+
 graph_df = graph_df.sort_values("timestamp").reset_index(drop=True)
 
 for c in ["temp_c", "humidity_pct", "lux", "noise_dbfs"]:
@@ -177,6 +189,7 @@ for c in ["temp_c", "humidity_pct", "lux", "noise_dbfs"]:
 # ----------------------------
 # disturbance rows only
 # only build event text where there is actually an event
+# detection still uses raw_df
 # ----------------------------
 disturbance_rows = raw_df[
     (raw_df["temp_event"] == 1) |
@@ -242,31 +255,33 @@ kpi(k6, "Light / Awake", f"{light_pct}% / {awake_pct}%")
 
 # ----------------------------
 # sleep stages
-# use 10-second increments so the chart is lighter
+# short recording -> raw rows
+# long recording -> 10-second increments
 # ----------------------------
 st.subheader("Sleep Stages")
 
 sleep_df = raw_df[["timestamp", "stage"]].copy()
 sleep_df = sleep_df.dropna(subset=["timestamp", "stage"]).sort_values("timestamp").reset_index(drop=True)
 
-# resample stage data to 10-second steps
-# taking the last stage in each 10-second bucket is fine here
-sleep_10s = (
-    sleep_df.set_index("timestamp")
-    .resample("10s")
-    .agg({
-        "stage": lambda s: s.dropna().iloc[-1] if not s.dropna().empty else None
-    })
-    .dropna(subset=["stage"])
-    .reset_index()
-)
+if total_minutes < 10:
+    sleep_plot = sleep_df.copy()
+else:
+    sleep_plot = (
+        sleep_df.set_index("timestamp")
+        .resample("10s")
+        .agg({
+            "stage": lambda s: s.dropna().iloc[-1] if not s.dropna().empty else None
+        })
+        .dropna(subset=["stage"])
+        .reset_index()
+    )
 
 stage_y = {"deep": 0, "light": 1, "rem": 2, "awake": 3}
-sleep_10s["y"] = sleep_10s["stage"].map(stage_y)
-sleep_10s["x2"] = sleep_10s["timestamp"].shift(-1)
-sleep_10s["y2"] = sleep_10s["y"].shift(-1)
+sleep_plot["y"] = sleep_plot["stage"].map(stage_y)
+sleep_plot["x2"] = sleep_plot["timestamp"].shift(-1)
+sleep_plot["y2"] = sleep_plot["y"].shift(-1)
 
-seg_df = sleep_10s.dropna(subset=["x2", "y2"]).copy()
+seg_df = sleep_plot.dropna(subset=["x2", "y2"]).copy()
 
 colors = {
     "deep": "#1F6BFF",
