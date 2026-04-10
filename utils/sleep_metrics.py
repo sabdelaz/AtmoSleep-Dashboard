@@ -371,25 +371,3 @@ def get_recent_nights_cached(folder_str: str, file_keys: tuple):
             pass
 
     return rows
-
-
-# ----------------------------
-# optional helper:
-# save one tiny summary json per night
-# useful later if you want even faster startup
-# not required right now, but keeping it here
-# ----------------------------
-def save_summary_sidecar(path_str: str):
-    path = Path(path_str)
-    summary = compute_night_summary_cached(path_str, path.stat().st_mtime)
-
-    sidecar_path = path.with_name(f"{path.stem}_summary.json")
-    serializable = summary.copy()
-
-    if pd.notna(serializable["date"]):
-        serializable["date"] = pd.Timestamp(serializable["date"]).strftime("%Y-%m-%d")
-    else:
-        serializable["date"] = None
-
-    with open(sidecar_path, "w", encoding="utf-8") as f:
-        json.dump(serializable, f, indent=2)
