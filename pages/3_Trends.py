@@ -4,11 +4,11 @@ import pandas as pd
 from pathlib import Path
 
 from utils.sleep_metrics import (
-    compute_night_metrics_cached,
     get_recent_nights_cached,
     list_csv_files,
     minutes_to_hours,
 )
+
 st.set_page_config(page_title="My Sleep Trends", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown(
@@ -338,6 +338,10 @@ def make_stage_mix_chart(data):
     return chart
 
 
+# ----------------------------
+# load only summary data for recent nights
+# this is the main speed-up for trends
+# ----------------------------
 files = list_csv_files(str(HISTORY_DIR))
 
 if not files:
