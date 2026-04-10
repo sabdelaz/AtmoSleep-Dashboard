@@ -253,18 +253,31 @@ kpi(k6, "Light / Awake", f"{light_pct}% / {awake_pct}%")
 
 # ----------------------------
 # sleep stages
+# use 30-second increments so the chart is much lighter
 # ----------------------------
 st.subheader("Sleep Stages")
 
 sleep_df = raw_df[["timestamp", "stage"]].copy()
 sleep_df = sleep_df.dropna(subset=["timestamp", "stage"]).sort_values("timestamp").reset_index(drop=True)
 
-stage_y = {"deep": 0, "light": 1, "rem": 2, "awake": 3}
-sleep_df["y"] = sleep_df["stage"].map(stage_y)
-sleep_df["x2"] = sleep_df["timestamp"].shift(-1)
-sleep_df["y2"] = sleep_df["y"].shift(-1)
+# resample stage data to 30-second steps
+# taking the last stage in each 30-second bucket is fine here
+sleep_30s = (
+    sleep_df.set_index("timestamp")
+    .resample("30s")
+    .agg({
+        "stage": lambda s: s.dropna().iloc[-1] if not s.dropna().empty else None
+    })
+    .dropna(subset=["stage"])
+    .reset_index()
+)
 
-seg_df = sleep_df.dropna(subset=["x2", "y2"]).copy()
+stage_y = {"deep": 0, "light": 1, "rem": 2, "awake": 3}
+sleep_30s["y"] = sleep_30s["stage"].map(stage_y)
+sleep_30s["x2"] = sleep_30s["timestamp"].shift(-1)
+sleep_30s["y2"] = sleep_30s["y"].shift(-1)
+
+seg_df = sleep_30s.dropna(subset=["x2", "y2"]).copy()
 
 colors = {
     "deep": "#1F6BFF",
