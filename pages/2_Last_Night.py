@@ -264,33 +264,15 @@ kpi(k6, "Light / Awake", f"{light_pct}% / {awake_pct}%")
 # ----------------------------
 st.subheader("Sleep Stages")
 
-seg_chart = seg.copy()
+sleep_df = raw_df[["timestamp", "stage"]].copy()
+sleep_df = sleep_df.dropna(subset=["timestamp", "stage"]).sort_values("timestamp").reset_index(drop=True)
 
-seg_chart["Stage"] = seg_chart["stage"].replace({
-    "awake": "Awake",
-    "light": "Light",
-    "deep": "Deep",
-    "rem": "REM"
-})
+stage_y = {"deep": 0, "light": 1, "rem": 2, "awake": 3}
+sleep_df["y"] = sleep_df["stage"].map(stage_y)
+sleep_df["x2"] = sleep_df["timestamp"].shift(-1)
+sleep_df["y2"] = sleep_df["y"].shift(-1)
 
-seg_chart["start_label"] = seg_chart["start"].dt.strftime("%I:%M:%S %p")
-seg_chart["end_label"] = seg_chart["end"].dt.strftime("%I:%M:%S %p")
-
-seg_chart["y"] = seg_chart["stage"].map({
-    "deep": 0,
-    "light": 1,
-    "rem": 2,
-    "awake": 3
-})
-
-# make sure tiny segments still show
-seg_chart["end_plot"] = seg_chart["end"]
-same_mask = seg_chart["end_plot"] <= seg_chart["start"]
-seg_chart.loc[same_mask, "end_plot"] = seg_chart.loc[same_mask, "start"] + pd.Timedelta(seconds=1)
-
-# give each stage row an actual thickness
-seg_chart["y0"] = seg_chart["y"] - 0.35
-seg_chart["y1"] = seg_chart["y"] + 0.35
+seg_df = sleep_df.dropna(subset=["x2", "y2"]).copy()
 
 colors = {
     "deep": "#1F6BFF",
@@ -299,49 +281,65 @@ colors = {
     "awake": "#F5F1EB"
 }
 
-sleep_chart = (
-    alt.Chart(seg_chart)
-    .mark_rect()
+x_enc = alt.X(
+    "timestamp:T",
+    title="",
+    scale=alt.Scale(domain=[domain_start, domain_end]),
+    axis=alt.Axis(
+        labelAngle=0,
+        tickCount=12,
+        format="%I:%M %p",
+        domain=False,
+        grid=False,
+        tickColor="rgba(255,255,255,0.15)",
+        labelColor="rgba(255,255,255,0.85)",
+    ),
+)
+
+y_enc = alt.Y(
+    "y:Q",
+    title="",
+    scale=alt.Scale(domain=[-0.2, 3.2]),
+    axis=alt.Axis(
+        values=[3, 2, 1, 0],
+        labelExpr="datum.value == 3 ? 'Awake' : datum.value == 2 ? 'REM' : datum.value == 1 ? 'Light' : 'Deep'",
+        domain=False,
+        grid=False,
+        ticks=False,
+        labelColor="rgba(255,255,255,0.85)",
+        labelFontSize=13,
+        labelFontWeight="bold"
+    ),
+)
+
+layers = []
+
+for stage in ["deep", "light", "rem", "awake"]:
+    data = seg_df[seg_df["stage"] == stage]
+
+    layers.append(
+        alt.Chart(data).mark_line(
+            interpolate="step-after",
+            strokeWidth=4,
+            color=colors[stage],
+            strokeCap="round",
+            strokeJoin="round",
+        ).encode(
+            x=x_enc,
+            y=y_enc,
+            x2="x2:T",
+            y2="y2:Q",
+            tooltip=[]
+        )
+    )
+
+hover_layer = (
+    alt.Chart(seg)
+    .mark_bar(opacity=0)
     .encode(
-        x=alt.X(
-            "start:T",
-            title="",
-            scale=alt.Scale(domain=[domain_start, domain_end]),
-            axis=alt.Axis(
-                labelAngle=0,
-                tickCount=12,
-                format="%I:%M %p",
-                domain=False,
-                grid=False,
-                tickColor="rgba(255,255,255,0.15)",
-                labelColor="rgba(255,255,255,0.85)",
-            ),
-        ),
-        x2="end_plot:T",
-        y=alt.Y(
-            "y0:Q",
-            title="",
-            scale=alt.Scale(domain=[-0.5, 3.5]),
-            axis=alt.Axis(
-                values=[3, 2, 1, 0],
-                labelExpr="datum.value == 3 ? 'Awake' : datum.value == 2 ? 'REM' : datum.value == 1 ? 'Light' : 'Deep'",
-                domain=False,
-                grid=False,
-                ticks=False,
-                labelColor="rgba(255,255,255,0.85)",
-                labelFontSize=13,
-                labelFontWeight="bold"
-            ),
-        ),
-        y2="y1:Q",
-        color=alt.Color(
-            "stage:N",
-            scale=alt.Scale(
-                domain=["deep", "light", "rem", "awake"],
-                range=[colors["deep"], colors["light"], colors["rem"], colors["awake"]]
-            ),
-            legend=None,
-        ),
+        x=alt.X("start:T", scale=alt.Scale(domain=[domain_start, domain_end])),
+        x2="end:T",
+        y=alt.Y("y:Q", scale=alt.Scale(domain=[-0.2, 3.2])),
         tooltip=[
             alt.Tooltip("Stage:N", title="Stage"),
             alt.Tooltip("start_label:N", title="From"),
@@ -349,10 +347,16 @@ sleep_chart = (
         ],
     )
     .properties(height=320)
+)
+
+chart = (
+    alt.layer(*layers, hover_layer)
+    .properties(height=320)
     .configure_view(strokeOpacity=0)
 )
 
-st.altair_chart(sleep_chart, use_container_width=True)
+st.altair_chart(chart, use_container_width=True)
+  
 mini_stage(s1, "Awake", minutes_to_hours(awake_min), "#F5F1EB")
 mini_stage(s2, "Light", minutes_to_hours(light_min), "#8BE9FD")
 mini_stage(s3, "REM", minutes_to_hours(rem_min), "#E24DFF")
