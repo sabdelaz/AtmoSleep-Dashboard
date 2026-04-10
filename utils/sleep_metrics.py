@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
+import json
 
 
 # keep score between 0 and 100
@@ -32,14 +33,58 @@ def parse_night_date_from_path(path: Path):
     return pd.to_datetime(path.stem, format="%Y%m%d", errors="coerce")
 
 
+# ----------------------------
+# file listing
+# ----------------------------
 @st.cache_data(show_spinner=False)
 def list_csv_files(folder_str: str):
     return sorted(Path(folder_str).glob("*.csv"))
 
 
+# ----------------------------
+# load csv
+# only load what we actually need
+# use dtypes to keep memory smaller
+# ----------------------------
 @st.cache_data(show_spinner=False)
 def load_csv(path_str):
-    raw = pd.read_csv(path_str)
+    usecols = [
+        "timestamp",
+        "sleep_stage",
+        "tempC",
+        "humPct",
+        "lux",
+        "dbfs",
+        "pir",
+        "centroidHz",
+        "B1_50_200",
+        "B2_200_1200",
+        "B3_1200_4000",
+        "B4_4000_8000",
+    ]
+
+    dtype_map = {
+        "sleep_stage": "string",
+        "tempC": "float32",
+        "humPct": "float32",
+        "lux": "float32",
+        "dbfs": "float32",
+        "pir": "float32",
+        "centroidHz": "float32",
+        "B1_50_200": "float32",
+        "B2_200_1200": "float32",
+        "B3_1200_4000": "float32",
+        "B4_4000_8000": "float32",
+    }
+
+    raw = pd.read_csv(
+        path_str,
+        usecols=usecols,
+        dtype=dtype_map,
+        parse_dates=["timestamp"],
+        low_memory=False,
+    )
+
     raw.columns = [str(c).strip() for c in raw.columns]
     return raw
 
@@ -81,16 +126,35 @@ def clean_night_df(raw):
     df = raw.rename(columns=col_map).copy()
 
     keep_cols = [
-        "timestamp", "stage", "temp_c", "humidity_pct", "lux", "noise_dbfs",
-        "motion", "centroid_hz", "b1", "b2", "b3", "b4"
+        "timestamp",
+        "stage",
+        "temp_c",
+        "humidity_pct",
+        "lux",
+        "noise_dbfs",
+        "motion",
+        "centroid_hz",
+        "b1",
+        "b2",
+        "b3",
+        "b4",
     ]
     df = df[[c for c in keep_cols if c in df.columns]]
 
+    # timestamp already parsed in read_csv, but safe anyway
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 
     num_cols = [
-        "temp_c", "humidity_pct", "lux", "noise_dbfs",
-        "motion", "centroid_hz", "b1", "b2", "b3", "b4"
+        "temp_c",
+        "humidity_pct",
+        "lux",
+        "noise_dbfs",
+        "motion",
+        "centroid_hz",
+        "b1",
+        "b2",
+        "b3",
+        "b4",
     ]
 
     for c in num_cols:
@@ -110,6 +174,9 @@ def clean_night_df(raw):
 def add_disturbance_columns(raw_df):
     df = raw_df.copy()
 
+    # compare current row vs earlier row
+    # 200 rows ≈ 20 s at 10 Hz
+    # 100 rows ≈ 10 s at 10 Hz
     df["temp_diff_200"] = df["temp_c"] - df["temp_c"].shift(200)
     df["hum_diff_200"] = df["humidity_pct"] - df["humidity_pct"].shift(200)
     df["lux_diff_100"] = df["lux"] - df["lux"].shift(100)
@@ -136,6 +203,7 @@ def add_disturbance_columns(raw_df):
     df.loc[df["noise_diff_100"] >= 0.7, "audio_hit"] = 1
     df.loc[df["noise_diff_100"] >= 0.7, "noise_diff"] = df["noise_diff_100"]
 
+    # group repeated hits into one event
     df["temp_event"] = pick_events(df, "temp_hit", row_gap=100)
     df["humidity_event"] = pick_events(df, "humidity_hit", row_gap=300)
     df["light_event"] = pick_events(df, "light_hit", row_gap=100)
@@ -195,15 +263,12 @@ def compute_sleep_score(total_sleep_min, awake_pct, deep_pct, rem_pct, disturban
     )
 
 
-@st.cache_data(show_spinner=False)
-def compute_night_metrics_cached(path_str: str, mtime: float):
-    path = Path(path_str)
-
-    raw = load_csv(path_str)
-    raw_df = clean_night_df(raw)
-    raw_df = add_disturbance_columns(raw_df)
-    seg = get_stage_segments(raw_df)
-
+# ----------------------------
+# summary builder
+# this is what trends should use
+# no raw_df and no seg returned here
+# ----------------------------
+def build_night_summary_from_processed(path: Path, raw_df, seg):
     deep_min = float(seg.loc[seg["stage"] == "deep", "duration_min"].sum())
     rem_min = float(seg.loc[seg["stage"] == "rem", "duration_min"].sum())
     light_min = float(seg.loc[seg["stage"] == "light", "duration_min"].sum())
@@ -247,17 +312,84 @@ def compute_night_metrics_cached(path_str: str, mtime: float):
         "rem_pct": round(rem_pct, 1),
         "light_pct": round(light_pct, 1),
         "awake_pct": round(awake_pct, 1),
+    }
+
+
+@st.cache_data(show_spinner=False)
+def compute_night_summary_cached(path_str: str, mtime: float):
+    path = Path(path_str)
+
+    raw = load_csv(path_str)
+    raw_df = clean_night_df(raw)
+    raw_df = add_disturbance_columns(raw_df)
+    seg = get_stage_segments(raw_df)
+
+    return build_night_summary_from_processed(path, raw_df, seg)
+
+
+# ----------------------------
+# detail builder
+# this is what last night should use
+# it keeps raw_df and seg only for one selected file
+# ----------------------------
+@st.cache_data(show_spinner=False)
+def compute_night_detail_cached(path_str: str, mtime: float):
+    path = Path(path_str)
+
+    raw = load_csv(path_str)
+    raw_df = clean_night_df(raw)
+    raw_df = add_disturbance_columns(raw_df)
+    seg = get_stage_segments(raw_df)
+
+    summary = build_night_summary_from_processed(path, raw_df, seg)
+
+    return {
+        **summary,
         "raw_df": raw_df,
         "seg": seg,
     }
 
 
+# keep old function name too in case any page still calls it
+@st.cache_data(show_spinner=False)
+def compute_night_metrics_cached(path_str: str, mtime: float):
+    return compute_night_detail_cached(path_str, mtime)
+
+
+# ----------------------------
+# recent summaries only
+# trends should use this
+# ----------------------------
 @st.cache_data(show_spinner=False)
 def get_recent_nights_cached(folder_str: str, file_keys: tuple):
     rows = []
+
     for path_str, mtime in file_keys:
         try:
-            rows.append(compute_night_metrics_cached(path_str, mtime))
+            rows.append(compute_night_summary_cached(path_str, mtime))
         except Exception:
             pass
+
     return rows
+
+
+# ----------------------------
+# optional helper:
+# save one tiny summary json per night
+# useful later if you want even faster startup
+# not required right now, but keeping it here
+# ----------------------------
+def save_summary_sidecar(path_str: str):
+    path = Path(path_str)
+    summary = compute_night_summary_cached(path_str, path.stat().st_mtime)
+
+    sidecar_path = path.with_name(f"{path.stem}_summary.json")
+    serializable = summary.copy()
+
+    if pd.notna(serializable["date"]):
+        serializable["date"] = pd.Timestamp(serializable["date"]).strftime("%Y-%m-%d")
+    else:
+        serializable["date"] = None
+
+    with open(sidecar_path, "w", encoding="utf-8") as f:
+        json.dump(serializable, f, indent=2)
